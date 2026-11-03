@@ -44,8 +44,9 @@ case "$target" in
     echo "export ANDROID_HOME='$sdk' ANDROID_NDK_HOME='$ndk' ANDROID_NDK_ROOT='$ndk' ANDROID_NDK='$ndk'"
     # bindgen reads FFmpeg's headers with its own libclang, which knows
     # nothing of the NDK until told where the sysroot is.
+    api=${ANDROID_API:-26}
     host_tag=$(ls "$ndk/toolchains/llvm/prebuilt" | head -1)
-    echo "export BINDGEN_EXTRA_CLANG_ARGS_${target//-/_}='--sysroot=$ndk/toolchains/llvm/prebuilt/$host_tag/sysroot'"
+    echo "export BINDGEN_EXTRA_CLANG_ARGS_${target//-/_}='--sysroot=$ndk/toolchains/llvm/prebuilt/$host_tag/sysroot --target=$target$api'"
     # Slint's backend compiles a Java helper against the SDK platform's
     # android.jar. cargo-ndk names the NDK API level as ANDROID_PLATFORM,
     # which is also the name the lookup reads for the SDK platform, and the

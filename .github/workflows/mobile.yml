@@ -140,7 +140,13 @@ jobs:
       - name: Locate Android NDK
         run: |
           sdk="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
-          ndk=$(ls -d "$sdk"/ndk/* 2>/dev/null | sort -V | tail -1)
+          ndk=$(ls -d "$sdk"/ndk/27* 2>/dev/null | sort -V | tail -1 || true)
+          if [ -z "$ndk" ] || [ ! -d "$ndk" ]; then
+            ndk=$(ls -d "$sdk"/ndk/* 2>/dev/null | grep -v '30\.' | sort -V | tail -1 || true)
+          fi
+          if [ -z "$ndk" ] || [ ! -d "$ndk" ]; then
+            ndk=$(ls -d "$sdk"/ndk/* 2>/dev/null | sort -V | tail -1 || true)
+          fi
           if [ -n "$ndk" ] && [ -d "$ndk" ]; then
             echo "ANDROID_NDK_HOME=$ndk" >> "$GITHUB_ENV"
             echo "ANDROID_NDK_ROOT=$ndk" >> "$GITHUB_ENV"
