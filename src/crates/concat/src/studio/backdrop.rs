@@ -276,7 +276,7 @@ impl Studio {
         let Some(clip) = self.framing_target() else {
             return;
         };
-        let clip_id = clip.id.clone();
+        let (clip_id, at) = (clip.id.clone(), place_in(clip, self.playhead));
         let timeline_id = self.timeline().id.clone();
         let mut video = self.timeline().video;
 
@@ -289,7 +289,6 @@ impl Studio {
             });
         }
 
-        let at = place_in(self.clip(&clip_id).unwrap_or(clip), self.playhead);
         self.apply(Command::FrameClip {
             clip_id,
             framing: Framing::Fill,
