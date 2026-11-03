@@ -7,7 +7,7 @@ import { Fmt } from "../util.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { Editor } from "../editor.slint";
 import { Lanes } from "../timeline/lanes.slint";
-import { ClipField, ClipKind, SelectedClipData } from "../timeline/model.slint";
+import { Backdrop, ClipField, ClipKind, SelectedClipData } from "../timeline/model.slint";
 import { Param, ParamFormat, SwitchRow } from "../inspector/controls.slint";
 import { PreviewPane } from "../workspace/preview-pane.slint";
 import { ContextMenu } from "../primitives/context-menu.slint";
@@ -1055,6 +1055,11 @@ export component PhoneEditor inherits Rectangle {
                 label: I18n.t("phone.canvas");
                 current: root.sheet == "clip-canvas";
                 clicked => { root.show("clip-canvas", true); }
+            }
+            if root.is-picture: ToolItem {
+                glyph: Glyph.wand;
+                label: "Auto 9:16";
+                clicked => { Backdrop.auto-reframe(); }
             }
             if root.is-text: ToolItem {
                 glyph: Glyph.text-mark;

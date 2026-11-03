@@ -1508,6 +1508,12 @@ export component VideoPanel inherits VerticalLayout {
                     horizontal-stretch: 1;
                     clicked => { Backdrop.frame(true); }
                 }
+                Button {
+                    label: "Auto 9:16";
+                    glyph: Glyph.wand;
+                    horizontal-stretch: 1;
+                    clicked => { Backdrop.auto-reframe(); }
+                }
             }
         }
     }

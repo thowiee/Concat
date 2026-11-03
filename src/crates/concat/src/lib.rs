@@ -1291,6 +1291,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         backdrop.on_frame(on_lanes!(|state, fill: bool| {
             state.frame_selected(fill);
         }));
+        backdrop.on_auto_reframe(on_lanes!(|state| {
+            state.auto_reframe();
+        }));
     }
     // The Speed tab's curve. Its own global, like the keyframe cluster's,
     // since the Speed panel sits in three places; each verb edits the echo

@@ -128,6 +128,11 @@ export component PhoneCanvas inherits VerticalLayout {
             label: I18n.t("clipInspector.fill");
             clicked => { Backdrop.frame(true); }
         }
+        Tile {
+            glyph: Glyph.wand;
+            label: "Auto 9:16";
+            clicked => { Backdrop.auto-reframe(); }
+        }
     }
 
     Heading { text: I18n.t("configPane.background"); }

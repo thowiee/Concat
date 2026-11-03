@@ -270,6 +270,33 @@ impl Studio {
         });
     }
 
+    /// Automatically reframes timeline to 9:16 vertical (1080x1920) if horizontal,
+    /// and scales the selected clip to fill the vertical frame.
+    pub fn auto_reframe(&mut self) {
+        let Some(clip) = self.framing_target() else {
+            return;
+        };
+        let clip_id = clip.id.clone();
+        let timeline_id = self.timeline().id.clone();
+        let mut video = self.timeline().video;
+
+        if video.width > video.height {
+            video.width = 1080;
+            video.height = 1920;
+            self.apply(Command::SetTimelineVideo {
+                timeline_id,
+                video,
+            });
+        }
+
+        let at = place_in(self.clip(&clip_id).unwrap_or(clip), self.playhead);
+        self.apply(Command::FrameClip {
+            clip_id,
+            framing: Framing::Fill,
+            at,
+        });
+    }
+
     /// One edit of a value that is dragged rather than pressed, folded into
     /// the step the same knob's last edit made within a moment of it, the
     /// way the inspector's commits fold: a drag across the softness is one
