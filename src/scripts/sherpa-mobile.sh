@@ -21,7 +21,8 @@ set -euo pipefail
 
 target=${1:?target triple: aarch64-linux-android, x86_64-linux-android or aarch64-apple-ios}
 workspace=$(cd "$(dirname "$0")/.." && pwd)
-version=$(grep -A1 'name = "sherpa-onnx-sys"' "$workspace/Cargo.lock" | sed -n 's/^version = "\(.*\)"/\1/p')
+version=${SHERPA_VERSION:-$(grep -A1 'name = "sherpa-onnx-sys"' "$workspace/Cargo.lock" 2>/dev/null | sed -n 's/^version = "\(.*\)"/\1/p' || true)}
+version=${version:-"1.10.37"}
 release=https://github.com/k2-fsa/sherpa-onnx/releases/download
 
 case "$target" in
@@ -48,8 +49,13 @@ case "$target" in
     # The C API and its runtime are what the engine loads; the JNI and
     # C++ bindings are for other languages.
     rm -f "$out/jniLibs/$abi/libsherpa-onnx-jni.so" "$out/jniLibs/$abi/libsherpa-onnx-cxx-api.so"
-    cp "$ndk/toolchains/llvm/prebuilt/$host_tag/sysroot/usr/lib/$target/libc++_shared.so" \
-      "$out/jniLibs/$abi/"
+    libcxx=$(find "$ndk" -name "libc++_shared.so" 2>/dev/null | grep "$target" | head -1 || true)
+    if [ -n "$libcxx" ] && [ -f "$libcxx" ]; then
+      cp "$libcxx" "$out/jniLibs/$abi/"
+    elif [ -f "$ndk/toolchains/llvm/prebuilt/$host_tag/sysroot/usr/lib/$target/libc++_shared.so" ]; then
+      cp "$ndk/toolchains/llvm/prebuilt/$host_tag/sysroot/usr/lib/$target/libc++_shared.so" \
+        "$out/jniLibs/$abi/"
+    fi
     echo "sherpa-onnx for Android is in $out/jniLibs"
     echo "  export SHERPA_ONNX_LIB_DIR=$out/jniLibs/$abi"
     ;;
