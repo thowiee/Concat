@@ -5920,4 +5920,50 @@ mod tests {
             crate::delete_to_playhead(timeline, &gone, 5.0, PlayheadSide::Left, false).is_none()
         );
     }
+
+    #[test]
+    fn autocut_removes_dead_air_and_ripples_timeline() {
+        let (mut editor, media_id, first) = fixture();
+        let track_id = editor.project().active().tracks[0].id.clone();
+        // Add a second clip starting at 12.0
+        let second = editor
+            .apply(Command::AddClip {
+                media_id,
+                track_id,
+                start: 12.0,
+                ripple: false,
+            })
+            .expect("adds second")
+            .created_id
+            .expect("minted");
+
+        // First clip is 0.0..10.0. Kept spans: 0.0..3.0 and 6.0..9.0 (duration 3.0 each).
+        // Removed: 3.0..6.0 (3.0s) and 9.0..10.0 (1.0s). Total removed: 4.0s.
+        let outcome = editor
+            .apply(Command::AutoCutClip {
+                clip_id: first.clone(),
+                kept_spans: vec![(0.0, 3.0), (6.0, 3.0)],
+            })
+            .expect("autocut applies");
+        assert!(outcome.applied);
+
+        // Timeline now has 3 clips: piece 1, piece 2, and second clip (rippled left by 4.0s from 12.0 to 8.0)
+        let clips = &editor.project().active().clips;
+        assert_eq!(clips.len(), 3);
+        assert_eq!(clips[0].start, 0.0);
+        assert_eq!(clips[0].duration, 3.0);
+        assert_eq!(clips[1].start, 3.0);
+        assert_eq!(clips[1].duration, 3.0);
+        assert_eq!(clips[2].id, second);
+        assert_eq!(clips[2].start, 8.0);
+
+        // One undo restores the original state
+        assert!(editor.undo());
+        let clips_undone = &editor.project().active().clips;
+        assert_eq!(clips_undone.len(), 2);
+        assert_eq!(clips_undone[0].id, first);
+        assert_eq!(clips_undone[0].duration, 10.0);
+        assert_eq!(clips_undone[1].id, second);
+        assert_eq!(clips_undone[1].start, 12.0);
+    }
 }

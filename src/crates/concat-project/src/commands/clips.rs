@@ -441,6 +441,90 @@ pub(super) fn apply(
             })
         }
 
+        Command::AutoCutClip { clip_id, kept_spans } => {
+            let timeline = project.active_mut();
+            let Some(index) = timeline.clips.iter().position(|clip| clip.id == clip_id) else {
+                return Ok(Outcome { created_id: None, applied: false });
+            };
+            if kept_spans.is_empty() {
+                return Ok(Outcome { created_id: None, applied: false });
+            }
+
+            let orig = timeline.clips[index].as_ref().clone();
+            let track_id = orig.track_id.clone();
+            let main = timeline.background_lane().map(str::to_owned);
+
+            // Compute removed spans in timeline coordinates
+            let mut removed = Vec::new();
+            let mut last_end_offset = 0.0;
+            for &(offset, duration) in &kept_spans {
+                if offset > last_end_offset + 0.005 {
+                    removed.push((
+                        track_id.clone(),
+                        orig.start + last_end_offset,
+                        orig.start + offset,
+                    ));
+                }
+                last_end_offset = offset + duration;
+            }
+            if orig.duration > last_end_offset + 0.005 {
+                removed.push((
+                    track_id.clone(),
+                    orig.start + last_end_offset,
+                    orig.start + orig.duration,
+                ));
+            }
+
+            if removed.is_empty() {
+                return Ok(Outcome { created_id: None, applied: false });
+            }
+
+            // Create kept clips
+            let mut new_clips = Vec::with_capacity(kept_spans.len());
+            let mut current_start = orig.start;
+            let mut first_id = None;
+
+            for (i, &(offset, duration)) in kept_spans.iter().enumerate() {
+                let mut piece = orig.clone();
+                let piece_id = if i == 0 {
+                    orig.id.clone()
+                } else {
+                    mint.next("c")
+                };
+                if first_id.is_none() {
+                    first_id = Some(piece_id.clone());
+                }
+                piece.id = piece_id;
+                piece.start = current_start;
+                piece.duration = duration;
+                piece.source_start = orig.source_start + offset * orig.speed;
+                if i > 0 {
+                    piece.transition_in = None;
+                }
+                new_clips.push(Arc::new(piece));
+                current_start += duration;
+            }
+
+            // Replace the original clip with kept clips in-place
+            timeline.clips.splice(index..=index, new_clips);
+
+            // Close gaps on the track and linked main tracks
+            close_gaps(timeline, &removed);
+            if let Some(main) = main.as_deref() {
+                let spans = removed
+                    .iter()
+                    .filter(|(track, _, _)| track == main)
+                    .map(|(_, start, end)| (*start, *end))
+                    .collect();
+                follow_main(timeline, Some(main), main, Ripple::Removed(spans));
+            }
+
+            Ok(Outcome {
+                created_id: first_id,
+                applied: true,
+            })
+        }
+
         Command::ReplaceClipMedia {
             clip_id,
             item,

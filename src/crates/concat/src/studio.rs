@@ -8708,6 +8708,173 @@ impl Studio {
         self.selection.clear();
     }
 
+    /// Automatically detects and cuts out dead air, long silences, and filler pauses
+    /// in the selected clip with ripple editing.
+    pub fn autocut_selected(&mut self) {
+        let target = self
+            .menu_target
+            .clone()
+            .or_else(|| self.sole_selection())
+            .or_else(|| self.selection.iter().next().cloned())
+            .and_then(|id| self.clip(&id).cloned())
+            .or_else(|| self.framing_target().cloned());
+        let Some(clip) = target else {
+            self.notify(&t("studio.selectClipToCut"), true);
+            return;
+        };
+
+        if self.locked(&clip.track_id) {
+            self.notify(&t("studio.trackLocked"), true);
+            return;
+        }
+
+        let has_audio = self
+            .project()
+            .media_by_id(&clip.media_id)
+            .is_some_and(|m| m.has_audio);
+        if !has_audio && clip.kind != model::ClipKind::Audio {
+            self.notify(&t("studio.detachNoSound"), true);
+            return;
+        }
+
+        let art = art_key(&clip.media_id, clip.audio_stream);
+        let peaks = match self.peaks.get(&art) {
+            Some(p) => Arc::clone(p),
+            None => {
+                if let Some(media) = self.project().media_by_id(&clip.media_id) {
+                    if let Ok(p) = concat_media::peaks::extract(
+                        std::path::Path::new(&media.path),
+                        200,
+                        clip.audio_stream.map(|s| s as usize),
+                    ) {
+                        let pyr = Arc::new(concat_media::Pyramid::of(p));
+                        self.peaks.insert(art, Arc::clone(&pyr));
+                        pyr
+                    } else {
+                        self.notify("Could not read audio waveform", true);
+                        return;
+                    }
+                } else {
+                    return;
+                }
+            }
+        };
+
+        let finest = peaks.finest();
+        let bps = finest.buckets_per_second as f64;
+        if bps <= 0.0 || finest.is_empty() {
+            self.notify("No audio data available", true);
+            return;
+        }
+
+        let source_start = clip.source_start;
+        let source_duration = clip.duration * clip.speed;
+        let start_bucket = ((source_start * bps).floor().max(0.0) as usize).min(finest.len());
+        let end_bucket = (((source_start + source_duration) * bps).ceil() as usize).min(finest.len());
+
+        if end_bucket <= start_bucket {
+            return;
+        }
+
+        let mut amps = Vec::with_capacity(end_bucket - start_bucket);
+        for i in start_bucket..end_bucket {
+            amps.push(finest.min[i].abs().max(finest.max[i].abs()));
+        }
+
+        let mut sorted = amps.clone();
+        sorted.sort_by(|a, b| a.total_cmp(b));
+        let loud = if sorted.is_empty() {
+            0.0
+        } else {
+            sorted[(sorted.len() - 1) * 19 / 20]
+        };
+        if loud < 1e-4 {
+            self.notify("Clip audio is completely silent", false);
+            return;
+        }
+
+        // Relative speech floor: 20dB under 95th percentile, floored at 0.015, capped at 0.08
+        let silence_thold = (loud * 0.12).max(0.015).min(0.08);
+
+        // Minimum silence duration (0.45s) to cut out dead air
+        let min_silence_buckets = (0.45 * bps).round() as usize;
+        // Speech padding margin (0.10s) so words aren't abruptly clipped
+        let margin_buckets = (0.10 * bps).round() as usize;
+
+        let mut silent_spans: Vec<(usize, usize)> = Vec::new();
+        let mut in_silence = false;
+        let mut sil_start = 0;
+
+        for (i, &amp) in amps.iter().enumerate() {
+            if amp < silence_thold {
+                if !in_silence {
+                    in_silence = true;
+                    sil_start = i;
+                }
+            } else if in_silence {
+                in_silence = false;
+                if i - sil_start >= min_silence_buckets {
+                    silent_spans.push((sil_start, i));
+                }
+            }
+        }
+        if in_silence && amps.len() - sil_start >= min_silence_buckets {
+            silent_spans.push((sil_start, amps.len()));
+        }
+
+        let mut cut_spans_sec: Vec<(f64, f64)> = Vec::new();
+        for (b_start, b_end) in silent_spans {
+            let cut_b_start = if b_start == 0 {
+                0
+            } else {
+                b_start + margin_buckets
+            };
+            let cut_b_end = if b_end == amps.len() {
+                amps.len()
+            } else {
+                b_end.saturating_sub(margin_buckets)
+            };
+            if cut_b_end > cut_b_start && (cut_b_end - cut_b_start) as f64 / bps >= 0.25 {
+                let cut_t_start = (cut_b_start as f64 / bps / clip.speed).min(clip.duration);
+                let cut_t_end = (cut_b_end as f64 / bps / clip.speed).min(clip.duration);
+                cut_spans_sec.push((cut_t_start, cut_t_end));
+            }
+        }
+
+        // Invert cuts to get kept spans
+        let mut kept_spans: Vec<(f64, f64)> = Vec::new();
+        let mut cur = 0.0;
+        for (cut_start, cut_end) in cut_spans_sec {
+            if cut_start > cur + 0.05 {
+                kept_spans.push((cur, cut_start - cur));
+            }
+            cur = cut_end;
+        }
+        if clip.duration > cur + 0.05 {
+            kept_spans.push((cur, clip.duration - cur));
+        }
+
+        if kept_spans.len() <= 1
+            && (kept_spans.is_empty() || (clip.duration - kept_spans[0].1).abs() < 0.1)
+        {
+            self.notify("No dead air or silence detected to cut", false);
+            return;
+        }
+
+        let count = kept_spans.len();
+        let total_cut: f64 = clip.duration - kept_spans.iter().map(|(_, d)| *d).sum::<f64>();
+
+        self.apply(Command::AutoCutClip {
+            clip_id: clip.id.clone(),
+            kept_spans,
+        });
+
+        self.notify(
+            &format!("Auto Cut: dipotong {total_cut:.1}s dead air ({count} bagian)"),
+            false,
+        );
+    }
+
     /// A freeze frame at the playhead on a picture clip.
     ///
     /// Video extracts a JPEG still into the project cache; images reuse their
@@ -13052,6 +13219,7 @@ impl Studio {
                 let at = self.playhead;
                 self.split_at(at, true);
             }
+            "auto-cut" => self.autocut_selected(),
             // B: the razor, on and off.
             "split-tool" => {
                 self.lanes.tool = if self.lanes.tool == TimelineTool::Split {

@@ -598,6 +598,14 @@ pub enum Command {
         /// The cut point, in timeline seconds.
         time: f64,
     },
+    /// Replaces a clip with multiple cut pieces (the kept spans) to remove
+    /// dead air, silence, and filler pauses with ripple editing.
+    AutoCutClip {
+        /// The clip to cut.
+        clip_id: String,
+        /// Kept spans: `(offset_from_clip_start, duration)` in timeline seconds.
+        kept_spans: Vec<(f64, f64)>,
+    },
     /// Points a clip at another file - the enhanced or reversed copy of
     /// its media - adding the file to the bin first when it is not there.
     /// The clip's length, looks and name are kept, and its in-point unless
@@ -1148,6 +1156,9 @@ impl Command {
             Command::MoveClips { moves } => bad(moves.iter().map(|wanted| wanted.start)),
             Command::TrimClip { delta, .. } => bad([*delta]),
             Command::SplitClips { time, .. } => bad([*time]),
+            Command::AutoCutClip { kept_spans, .. } => {
+                bad(kept_spans.iter().flat_map(|(s, d)| [*s, *d]))
+            }
             Command::FreezeFrame { time, duration, .. } => bad([*time]) || bad(*duration),
             Command::ReplaceClipMedia {
                 item,
@@ -1293,6 +1304,7 @@ pub fn apply(
         | Command::MoveClips { .. }
         | Command::TrimClip { .. }
         | Command::SplitClips { .. }
+        | Command::AutoCutClip { .. }
         | Command::FreezeFrame { .. }
         | Command::ReplaceClipMedia { .. }
         | Command::SetClipEnhanced { .. }
