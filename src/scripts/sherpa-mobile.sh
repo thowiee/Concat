@@ -22,7 +22,7 @@ set -euo pipefail
 target=${1:?target triple: aarch64-linux-android, x86_64-linux-android or aarch64-apple-ios}
 workspace=$(cd "$(dirname "$0")/.." && pwd)
 version=${SHERPA_VERSION:-$(grep -A1 'name = "sherpa-onnx-sys"' "$workspace/Cargo.lock" 2>/dev/null | sed -n 's/^version = "\(.*\)"/\1/p' || true)}
-version=${version:-"1.10.37"}
+version=${version:-"2.0.1"}
 release=https://github.com/k2-fsa/sherpa-onnx/releases/download
 
 case "$target" in
